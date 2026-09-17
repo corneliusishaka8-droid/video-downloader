@@ -11,7 +11,9 @@ const PORT = 3000;
 const YTDLP_COMMAND = process.platform === "win32" ? "py" : "yt-dlp";
 const YTDLP_PREFIX_ARGS = process.platform === "win32" ? ["-m", "yt_dlp"] : [];
 const PROJECT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const DOWNLOADS_DIR = path.join(PROJECT_DIR, "downloads");
+// Vercel's filesystem is read-only except for /tmp. Local development keeps
+// using the project's downloads folder so the same routes work in both modes.
+const DOWNLOADS_DIR = process.env.VERCEL ? "/tmp/clipforge-downloads" : path.join(PROJECT_DIR, "downloads");
 const PUBLIC_DIR = path.join(PROJECT_DIR, "public");
 
 fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
@@ -150,6 +152,11 @@ app.post("/download/file", (req, res) => {
     }
   );
 });
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
-});
+// Vercel imports this file as a serverless function. Only bind a port locally.
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT}`);
+  });
+}
+
+export default app;

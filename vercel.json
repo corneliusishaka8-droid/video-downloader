@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/download", "destination": "/api" },
+    { "source": "/download/file", "destination": "/api" },
+    { "source": "/yt-dlp-version", "destination": "/api" }
+  ]
+}
