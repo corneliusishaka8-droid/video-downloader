@@ -7,9 +7,9 @@ import { fileURLToPath } from "url";
 
 const app = express();
 const PORT = 3000;
-// Windows uses the Python launcher so the server can run yt-dlp as a module.
-const YTDLP_COMMAND = process.platform === "win32" ? "py" : "yt-dlp";
-const YTDLP_PREFIX_ARGS = process.platform === "win32" ? ["-m", "yt_dlp"] : [];
+const YTDLP_COMMAND = process.env.YTDLP_COMMAND || (process.platform === "win32" ? "py" : "python3");
+const YTDLP_PREFIX_ARGS = process.env.YTDLP_COMMAND ? [] : ["-m", "yt_dlp"];
+const YTDLP_MAX_BUFFER = 16 * 1024 * 1024;
 const PROJECT_DIR = path.dirname(fileURLToPath(import.meta.url));
 // Vercel's filesystem is read-only except for /tmp. Local development keeps
 // using the project's downloads folder so the same routes work in both modes.
@@ -47,15 +47,14 @@ function getVideoUrl(req, res) {
 }
 
 app.get("/yt-dlp-version", (req, res) => {
-  // `res` belongs to this Express route. The old code used `res` in a
-  // startup callback, where it did not exist, causing "res is not defined".
-  execFile(YTDLP_COMMAND, [...YTDLP_PREFIX_ARGS, "--version"], (error, stdout) => {
+  execFile(YTDLP_COMMAND, [...YTDLP_PREFIX_ARGS, "--version"], { maxBuffer: YTDLP_MAX_BUFFER }, (error, stdout, stderr) => {
     if (error) {
-      console.error("yt-dlp error:", error.message);
+      console.error("yt-dlp version error:", stderr?.trim() || error.message);
 
       return res.status(500).json({
         success: false,
-        error: "yt-dlp is not installed or not found in PATH.",
+        error: "yt-dlp is not available in this runtime.",
+        details: stderr?.trim() || error.message,
       });
     }
 
@@ -74,12 +73,18 @@ app.post("/download", (req, res) => {
   const url = getVideoUrl(req, res);
   if (!url) return;
 
-  execFile(YTDLP_COMMAND, [...YTDLP_PREFIX_ARGS, "--dump-single-json", "--no-download", "--no-warnings", url], (error, stdout) => {
+  execFile(
+    YTDLP_COMMAND,
+    [...YTDLP_PREFIX_ARGS, "--dump-single-json", "--no-download", "--no-playlist", "--no-warnings", url],
+    { maxBuffer: YTDLP_MAX_BUFFER },
+    (error, stdout, stderr) => {
     if (error) {
-      console.error("yt-dlp metadata error:", error.message);
+      const details = stderr?.trim() || error.message;
+      console.error("yt-dlp metadata error:", details);
       return res.status(500).json({
         success: false,
         error: "Failed to fetch video information. Check the URL and yt-dlp output.",
+        details,
       });
     }
     try {
@@ -99,7 +104,8 @@ app.post("/download", (req, res) => {
         error: "Failed to parse video information.",
       });
     }
-  });
+    }
+  );
 });
 
 app.post("/download/file", (req, res) => {
@@ -115,12 +121,14 @@ app.post("/download/file", (req, res) => {
       ...YTDLP_PREFIX_ARGS,
       "-f",
       "bv*+ba/b",
+      "--no-playlist",
       "--merge-output-format",
       "mp4",
       "-o",
       outputPath,
       url
     ],
+    { maxBuffer: YTDLP_MAX_BUFFER },
     (error, stdout, stderr) => {
       if (error) {
         const details = stderr?.trim() || error.message;
@@ -134,9 +142,17 @@ app.post("/download/file", (req, res) => {
       }
 
       if (!fs.existsSync(outputPath)) {
+        const outputPrefix = path.basename(outputPath, path.extname(outputPath));
+        for (const partialFile of fs.readdirSync(DOWNLOADS_DIR)) {
+          if (partialFile.startsWith(`${outputPrefix}.`)) {
+            fs.unlinkSync(path.join(DOWNLOADS_DIR, partialFile));
+          }
+        }
+
         return res.status(500).json({
           success: false,
-          error: "Downloaded file was not found.",
+          error: "yt-dlp could not create the MP4 file.",
+          details: "Install ffmpeg so yt-dlp can merge the video and audio streams, then try again.",
         });
       }
 
