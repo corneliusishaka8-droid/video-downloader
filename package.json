@@ -12,6 +12,7 @@
   "type": "module",
   "dependencies": {
     "express": "^5.2.1",
-    "uuid": "^14.0.2"
+    "uuid": "^14.0.2",
+    "yt-dlp-exec": "^1.0.2"
   }
 }

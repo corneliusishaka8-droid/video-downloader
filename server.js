@@ -1,14 +1,12 @@
 import express from "express";
-import { execFile } from "child_process";
 import path from "path";
 import fs from "fs";    
 import {v4 as uuidv4} from "uuid";
 import { fileURLToPath } from "url";
+import ytDlp from "yt-dlp-exec";
 
 const app = express();
 const PORT = 3000;
-const YTDLP_COMMAND = process.env.YTDLP_COMMAND || (process.platform === "win32" ? "py" : "python3");
-const YTDLP_PREFIX_ARGS = process.env.YTDLP_COMMAND ? [] : ["-m", "yt_dlp"];
 const YTDLP_MAX_BUFFER = 16 * 1024 * 1024;
 const PROJECT_DIR = path.dirname(fileURLToPath(import.meta.url));
 // Vercel's filesystem is read-only except for /tmp. Local development keeps
@@ -47,22 +45,17 @@ function getVideoUrl(req, res) {
 }
 
 app.get("/yt-dlp-version", (req, res) => {
-  execFile(YTDLP_COMMAND, [...YTDLP_PREFIX_ARGS, "--version"], { maxBuffer: YTDLP_MAX_BUFFER }, (error, stdout, stderr) => {
-    if (error) {
-      console.error("yt-dlp version error:", stderr?.trim() || error.message);
-
-      return res.status(500).json({
+  ytDlp.exec(null, { version: true }, { maxBuffer: YTDLP_MAX_BUFFER })
+    .then(({ stdout }) => res.json({ success: true, ytDlpVersion: stdout.trim() }))
+    .catch((error) => {
+      const details = error.stderr?.trim() || error.message;
+      console.error("yt-dlp version error:", details);
+      res.status(500).json({
         success: false,
         error: "yt-dlp is not available in this runtime.",
-        details: stderr?.trim() || error.message,
+        details,
       });
-    }
-
-    res.json({
-      success: true,
-      ytDlpVersion: stdout.trim(),
     });
-  });
 });
 
 app.get("/", (req, res) => {
@@ -73,39 +66,39 @@ app.post("/download", (req, res) => {
   const url = getVideoUrl(req, res);
   if (!url) return;
 
-  execFile(
-    YTDLP_COMMAND,
-    [...YTDLP_PREFIX_ARGS, "--dump-single-json", "--no-download", "--no-playlist", "--no-warnings", url],
+  ytDlp.exec(
+    url,
+    { dumpSingleJson: true, noDownload: true, noPlaylist: true, noWarnings: true },
     { maxBuffer: YTDLP_MAX_BUFFER },
-    (error, stdout, stderr) => {
-    if (error) {
-      const details = stderr?.trim() || error.message;
+  )
+    .then(({ stdout }) => {
+      try {
+        const videoInfo = JSON.parse(stdout);
+        res.json({
+          title: videoInfo.title,
+          description: videoInfo.description,
+          duration: videoInfo.duration,
+          uploader: videoInfo.uploader,
+          thumbnail: videoInfo.thumbnail,
+          webpage_url: videoInfo.webpage_url,
+        });
+      } catch (error) {
+        console.error("Error parsing video information:", error.message);
+        res.status(500).json({
+          success: false,
+          error: "Failed to parse video information.",
+        });
+      }
+    })
+    .catch((error) => {
+      const details = error.stderr?.trim() || error.message;
       console.error("yt-dlp metadata error:", details);
-      return res.status(500).json({
+      res.status(500).json({
         success: false,
         error: "Failed to fetch video information. Check the URL and yt-dlp output.",
         details,
       });
-    }
-    try {
-      const videoInfo = JSON.parse(stdout);
-      res.json({
-        title: videoInfo.title,
-        description: videoInfo.description,
-        duration: videoInfo.duration,
-        uploader: videoInfo.uploader,
-        thumbnail: videoInfo.thumbnail,
-        webpage_url: videoInfo.webpage_url,
-      });
-    } catch (error) {
-      console.error("Error parsing video information:", error.message);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to parse video information.",
-      });
-    }
-    }
-  );
+    });
 });
 
 app.post("/download/file", (req, res) => {
@@ -115,32 +108,17 @@ app.post("/download/file", (req, res) => {
   const filename = `${uuidv4()}.mp4`;
   const outputPath = path.join(DOWNLOADS_DIR, filename);
 
-  execFile(
-    YTDLP_COMMAND,
-    [
-      ...YTDLP_PREFIX_ARGS,
-      "-f",
-      "bv*+ba/b",
-      "--no-playlist",
-      "--merge-output-format",
-      "mp4",
-      "-o",
-      outputPath,
-      url
-    ],
+  ytDlp.exec(
+    url,
+    {
+      format: "bv*+ba/b",
+      noPlaylist: true,
+      mergeOutputFormat: "mp4",
+      output: outputPath,
+    },
     { maxBuffer: YTDLP_MAX_BUFFER },
-    (error, stdout, stderr) => {
-      if (error) {
-        const details = stderr?.trim() || error.message;
-        console.error("yt-dlp download error:", details);
-
-        return res.status(500).json({
-          success: false,
-          error: "Video download failed.",
-          details,
-        });
-      }
-
+  )
+    .then(() => {
       if (!fs.existsSync(outputPath)) {
         const outputPrefix = path.basename(outputPath, path.extname(outputPath));
         for (const partialFile of fs.readdirSync(DOWNLOADS_DIR)) {
@@ -165,8 +143,16 @@ app.post("/download/file", (req, res) => {
           if (deleteError) console.error("Could not delete temporary file:", deleteError);
         });
       });
-    }
-  );
+    })
+    .catch((error) => {
+      const details = error.stderr?.trim() || error.message;
+        console.error("yt-dlp download error:", details);
+      res.status(500).json({
+        success: false,
+        error: "Video download failed.",
+        details,
+      });
+    });
 });
 // Vercel imports this file as a serverless function. Only bind a port locally.
 if (!process.env.VERCEL) {

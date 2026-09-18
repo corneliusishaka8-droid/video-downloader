@@ -5,8 +5,7 @@ Coco's Forge is a local video downloader with a browser frontend and an Express 
 ## Requirements
 
 - Node.js 18 or newer
-- Python 3
-- `yt-dlp` installed for Python
+- npm install scripts enabled so `yt-dlp-exec` can install its platform binary
 - `ffmpeg` installed and available in `PATH` for MP4 merging
 
 Install the project dependencies and downloader:
@@ -14,16 +13,12 @@ Install the project dependencies and downloader:
 ```powershell
 cd C:\Users\COCO\program\video
 npm install
-python -m pip install --upgrade yt-dlp
 # Install ffmpeg separately and verify it is available:
 ffmpeg -version
 ```
 
-On Windows, the server runs `yt-dlp` through:
-
-```text
-py -m yt_dlp
-```
+The server uses the platform-specific yt-dlp executable installed by
+`yt-dlp-exec`; it does not require Python at runtime.
 
 ## Start the app
 
@@ -108,13 +103,13 @@ video/
 
 ## Troubleshooting
 
-### `yt-dlp` is not installed
+### `yt-dlp` is not available
 
 Run:
 
 ```powershell
-python -m pip install --upgrade yt-dlp
-py -m yt_dlp --version
+npm install
+Invoke-RestMethod http://localhost:3000/yt-dlp-version
 ```
 
 ### `yt-dlp could not create the MP4 file`
