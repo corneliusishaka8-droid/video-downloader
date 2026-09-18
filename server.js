@@ -3,12 +3,20 @@ import path from "path";
 import fs from "fs";    
 import {v4 as uuidv4} from "uuid";
 import { fileURLToPath } from "url";
-import ytDlp from "yt-dlp-exec";
+import ytDlpPackage from "yt-dlp-exec";
 
 const app = express();
 const PORT = 3000;
 const YTDLP_MAX_BUFFER = 16 * 1024 * 1024;
 const PROJECT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const YTDLP_BINARY = path.join(
+  PROJECT_DIR,
+  "node_modules",
+  "yt-dlp-exec",
+  "bin",
+  process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp_linux",
+);
+const ytDlp = ytDlpPackage.create(YTDLP_BINARY);
 // Vercel's filesystem is read-only except for /tmp. Local development keeps
 // using the project's downloads folder so the same routes work in both modes.
 const DOWNLOADS_DIR = process.env.VERCEL ? "/tmp/clipforge-downloads" : path.join(PROJECT_DIR, "downloads");
